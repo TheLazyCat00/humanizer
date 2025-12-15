@@ -1,5 +1,6 @@
 use nih_plug::prelude::*;
-use std::{default, sync::Arc};
+use std:: { sync::Arc };
+use noise:: { Perlin, NoiseFn };
 
 fn ms_to_samples(ms: f32, sample_rate: f32) -> u32 {
 	let samples = ms * sample_rate;
@@ -9,6 +10,13 @@ fn ms_to_samples(ms: f32, sample_rate: f32) -> u32 {
 
 struct Humanizer {
 	params: Arc<HumanizerParams>,
+	delay_line: Vec<[f32; 2]>,
+	write_idx: usize,
+	max_delay_samples: usize,
+	perlin: Perlin,
+	noise_pos: f64,
+	frequency: f64,
+	sample_rate: f32,
 }
 
 #[derive(Params)]
@@ -105,14 +113,14 @@ impl Plugin for Humanizer {
 		_buffer_config: &BufferConfig,
 		_context: &mut impl InitContext<Self>,
 	) -> bool {
-		let sample_rate = _buffer_config.sample_rate;
+		self.sample_rate = _buffer_config.sample_rate;
 		
 		let center = self.params.center.value();
 		let range = self.params.range.value();
 
 		let start = (center - 0.5) * range;
 
-		_context.set_latency_samples(ms_to_samples(start, sample_rate));
+		_context.set_latency_samples(ms_to_samples(start, self.sample_rate));
 		true
 	}
 
@@ -127,13 +135,128 @@ impl Plugin for Humanizer {
 		_aux: &mut AuxiliaryBuffers,
 		_context: &mut impl ProcessContext<Self>,
 	) -> ProcessStatus {
-		let center = self.params.center.value();
-		let range = self.params.range.value();
+		let sample_rate = self.sample_rate as f64;
+		let num_samples = buffer.samples();
+
+		let center = self.params.center.smoothed.next();
+		let range = self.params.range.smoothed.next();
 		let start = (center - 0.5) * range;
 		let end = (center * 0.5) * range;
-		
+
+		let noise_value = self.perlin.get([self.noise_pos]);
+		let output_sample = noise_value as f32;
+		self.noise_pos += self.frequency * (1.0 / sample_rate);
+		let delay_time_samples =
+		// NIH-plug's `iter_samples()` allows you to iterate over all channels/samples simultaneously
+		for (sample_idx, mut sample_data) in buffer.iter_samples().enumerate() {
+		}
+
+		// Update the write index for the next block
+		self.write_idx = (self.write_idx + num_samples) % self.max_delay_samples;
+
 		ProcessStatus::Normal
 	}
+fn process(
+        &mut self,
+        buffer: &mut Buffer<'_>,
+        _aux: &mut AuxiliaryBuffers<'_>,
+        _context: &mut impl ProcessContext<Self>,
+    ) -> ProcessStatus {
+        // We use the sample rate from the buffer for accuracy
+        let sample_rate = buffer.sample_rate() as f64;
+        let num_samples = buffer.samples();
+
+        // --- 1. Get Smoothed Modulation Parameters ---
+        // 'center' controls the base delay offset (e.g., 0.5 for half the range)
+        let center = self.params.center.smoothed.next(); 
+        // 'range' controls the total span of the shift (e.g., max 10ms shift)
+        let range = self.params.range.smoothed.next(); 
+        // 'frequency' controls the speed of the LFO (Perlin noise)
+        let frequency = self.params.frequency.smoothed.next() as f64; 
+        
+        // Calculate the modulation limits in *samples*
+        // The noise shifts the delay time around the center point.
+        // We use a small maximum delay (e.g., 2048 samples) just to be safe, 
+        // but the actual shifting range is determined by 'range'.
+        let max_shift_samples = 2048.0; 
+        
+        // Base delay time in samples (offset from current sample)
+        let base_delay = center * range * max_shift_samples; 
+        // Modulation depth in samples (total shift range)
+        let modulation_depth = range * max_shift_samples; 
+
+        // Calculate the change in noise position per sample
+        let noise_step = frequency / sample_rate;
+        
+        // --- 2. Process Audio Samples ---
+        for (sample_idx, mut sample_data) in buffer.iter_samples().enumerate() {
+            let sample_idx_f64 = sample_idx as f64;
+            
+            // a) Calculate the instantaneous, smooth noise-modulated delay time
+            let current_noise_pos = self.noise_pos + sample_idx_f64 * noise_step;
+            let current_noise_value = self.perlin.get([current_noise_pos]); // noise is in [-1.0, 1.0]
+
+            // Modulate the delay time: Base Delay + (Noise Value * Modulation Depth)
+            // Note: This is the total delay *from the input*, not just the LFO amount.
+            let delay_time_samples_f32 = (base_delay + current_noise_value as f32 * modulation_depth)
+                .max(0.0) // Ensure delay time is non-negative
+                .min(self.max_delay_samples as f32 - 1.0); // Stay within buffer bounds
+
+            // b) Separate the integer and fractional parts for interpolation
+            let delay_time_samples = delay_time_samples_f32;
+            let read_delay_idx_i = delay_time_samples.floor() as usize; // Integer part
+            let fraction = delay_time_samples.fract(); // Fractional part
+
+            // c) Calculate the circular buffer read indices
+            // P1 is the sample *before* the fractional read point
+            // P2 is the sample *after* the fractional read point
+            let current_write_idx = (self.write_idx + sample_idx) % self.max_delay_samples;
+            
+            // Note: The read index counts *back* from the current write index
+            let p1_read_idx = (current_write_idx + self.max_delay_samples - read_delay_idx_i) 
+                              % self.max_delay_samples;
+            let p2_read_idx = (p1_read_idx + self.max_delay_samples - 1) 
+                              % self.max_delay_samples;
+
+            // d) Process each channel
+            for channel_idx in 0..buffer.channels() {
+                let input_sample = sample_data[channel_idx];
+                
+                // Read the two required samples
+                let p1 = self.delay_line[p1_read_idx][channel_idx];
+                let p2 = self.delay_line[p2_read_idx][channel_idx];
+                
+                // --- LINEAR INTERPOLATION --- 
+                // delayed_sample = P1 + (P2 - P1) * fraction
+                let delayed_sample = p1 + (p2 - p1) * fraction;
+
+                // --- Calculate Output and Write Back ---
+                // For a simple shift effect, we typically just output the wet signal
+                let wet_output = delayed_sample;
+                
+                // For a flanger/chorus, you might mix:
+                // let output = input_sample + wet_output; 
+                
+                // For a simple shift, we just output the delayed audio (wet)
+                let output = wet_output; 
+
+                // Write the input sample to the circular buffer for later reading
+                self.delay_line[current_write_idx][channel_idx] = input_sample;
+
+                // Update the output buffer
+                sample_data[channel_idx] = output;
+            }
+        }
+        
+        // --- 3. Advance State for Next Block ---
+        // Advance the noise position for the start of the next block
+        self.noise_pos += num_samples as f64 * noise_step;
+        
+        // Update the write index for the next block
+        self.write_idx = (self.write_idx + num_samples) % self.max_delay_samples;
+
+        ProcessStatus::Normal
+    }
 }
 
 impl ClapPlugin for Humanizer {
