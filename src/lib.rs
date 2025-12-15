@@ -29,7 +29,7 @@ impl Humanizer {
 		samples as u32
 	}
 }
-// --- Default Implementations ---
+
 impl Default for Humanizer {
 	fn default() -> Self {
 		Self {
@@ -47,7 +47,6 @@ impl Default for Humanizer {
 impl Default for HumanizerParams {
 	fn default() -> Self {
 		Self {
-			// ... center and range stay the same ...
 			center: FloatParam::new(
 				"Center", 0.0,
 				FloatRange::Linear { min: -0.5, max: 0.5 }
@@ -58,10 +57,8 @@ impl Default for HumanizerParams {
 				FloatRange::Linear { min: 0.0, max: 50.0 }
 			).with_unit(" ms"),
 
-			// CHANGE: Update label and range. 
-			// 0.25 = 1 cycle every 4 beats. 4.0 = 4 cycles per beat.
 			frequency: FloatParam::new(
-				"Speed", // Renamed for clarity
+				"Speed",
 				1.0, 
 				FloatRange::Linear { min: 0.1, max: 8.0 } 
 			).with_unit(" Cycles/Beat"),
@@ -69,11 +66,10 @@ impl Default for HumanizerParams {
 	}
 }
 
-// --- Plugin Implementation ---
 impl Plugin for Humanizer {
 	const NAME: &'static str = "Humanizer";
 	const VENDOR: &'static str = "TheLazyCat00";
-	const URL: &'static str = "https://youtu.be/dQw4w9WgXcQ"; // Placeholder
+	const URL: &'static str = "https://youtu.be/dQw4w9WgXcQ";
 	const EMAIL: &'static str = "your@email.com";
 	const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
@@ -109,7 +105,6 @@ impl Plugin for Humanizer {
 		self.delay_line.resize(max_samples, [0.0; 2]);
 		self.max_delay_samples = max_samples;
 
-		// Report latency
 		const REQUIRED_LATENCY_MS: f32 = 50.0;
 		_context.set_latency_samples(self.ms_to_samples(REQUIRED_LATENCY_MS));
 
@@ -117,7 +112,6 @@ impl Plugin for Humanizer {
 	}
 
 	fn reset(&mut self) {
-		// Clear buffers on reset
 		for sample in self.delay_line.iter_mut() {
 			*sample = [0.0; 2];
 		}
@@ -133,20 +127,14 @@ impl Plugin for Humanizer {
 		let sample_rate = self.sample_rate as f64;
 		let num_samples = buffer.samples();
 
-		// --- 1. Get Tempo from Host ---
 		let transport = _context.transport();
-		// Default to 120.0 BPM if the host doesn't provide it or isn't playing
 		let tempo = transport.tempo.unwrap_or(120.0);
 
 		let range_ms = self.params.range.smoothed.next(); 
 		let center = self.params.center.smoothed.next(); 
 
-		// This parameter is now "Cycles per Beat"
 		let cycles_per_beat = self.params.frequency.smoothed.next() as f64;
 
-		// --- 2. Convert Beats to Hz ---
-		// Formula: Hz = (BPM / 60) * CyclesPerBeat
-		// Example: 120 BPM = 2 beats/sec. If param is 1.0, freq is 2 Hz.
 		let frequency_hz = (tempo / 60.0) * cycles_per_beat;
 
 		let max_range_samples = self.ms_to_samples(range_ms) as f32;
@@ -154,7 +142,6 @@ impl Plugin for Humanizer {
 		let base_delay = max_range_samples * (1.0 - center_norm); 
 		let modulation_depth = max_range_samples * 0.5; 
 
-		// Use the calculated Hz for the step size
 		let noise_step = frequency_hz / sample_rate;
 
 		for (sample_idx, samples) in buffer.iter_samples().enumerate() {
