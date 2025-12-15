@@ -2,6 +2,7 @@ use atomic_float::AtomicF32;
 use nih_plug::prelude:: { util, Editor, GuiContext };
 use nih_plug_iced::widgets as nih_widgets;
 use nih_plug_iced::*;
+use iced_audio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,15 +16,12 @@ pub(crate) fn create(
 	params: Arc<GainParams>,
 	editor_state: Arc<IcedState>,
 ) -> Option<Box<dyn Editor>> {
-	create_iced_editor::<GainEditor>(editor_state, (params, peak_meter))
+	create_iced_editor::<HumanizerEditor>(editor_state, (params, peak_meter))
 }
 
 struct HumanizerEditor {
 	params: Arc<HumanizerParams>,
 	context: Arc<dyn GuiContext>,
-
-	gain_slider_state: nih_widgets::param_slider::State,
-	peak_meter_state: nih_widgets::peak_meter::State,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -48,7 +46,6 @@ impl IcedEditor for HumanizerEditor {
 			peak_meter,
 
 			gain_slider_state: Default::default(),
-			peak_meter_state: Default::default(),
 		};
 
 		(editor, Command::none())
