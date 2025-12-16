@@ -1,66 +1,97 @@
-use atomic_float::AtomicF32;
-use nih_plug::prelude::{util, Editor};
-use nih_plug_vizia::vizia::prelude::*;
-use nih_plug_vizia::widgets::*;
-use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
-use std::sync::atomic::Ordering;
+use nih_plug::prelude::{ Editor, GuiContext};
+use nih_plug_iced::widgets as nih_widgets;
+use nih_plug_iced::*;
 use std::sync::Arc;
-use std::time::Duration;
 
 mod widgets;
 use widgets::*;
-
 use crate::HumanizerParams;
 
-#[derive(Lens)]
-struct Data {
-	params: Arc<HumanizerParams>,
-}
-
-impl Model for Data {}
-
 // Makes sense to also define this here, makes it a bit easier to keep track of
-pub(crate) fn default_state() -> Arc<ViziaState> {
-	ViziaState::new(|| (200, 150))
+pub(crate) fn default_state() -> Arc<IcedState> {
+	IcedState::from_size(200, 150)
 }
 
 pub(crate) fn create(
 	params: Arc<HumanizerParams>,
-	editor_state: Arc<ViziaState>,
+	editor_state: Arc<IcedState>,
 ) -> Option<Box<dyn Editor>> {
-	create_vizia_editor(editor_state, ViziaTheming::Custom, move |cx, _| {
-		assets::register_noto_sans_light(cx);
-		assets::register_noto_sans_thin(cx);
+	create_iced_editor::<HumanizerEditor>(editor_state, params)
+}
 
-		Data {
-			params: params.clone(),
+struct HumanizerEditor {
+	params: Arc<HumanizerParams>,
+	context: Arc<dyn GuiContext>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Message {
+	ParamUpdate(nih_widgets::ParamMessage),
+}
+
+impl IcedEditor for HumanizerEditor {
+	type Executor = executor::Default;
+	type Message = Message;
+	type InitializationFlags = Arc<HumanizerParams>;
+
+	fn new(
+		params: Self::InitializationFlags,
+		context: Arc<dyn GuiContext>,
+	) -> (Self, Command<Self::Message>) {
+		let editor = HumanizerEditor {
+			params,
+			context,
+		};
+
+		(editor, Command::none())
+	}
+
+	fn context(&self) -> &dyn GuiContext {
+		self.context.as_ref()
+	}
+
+	fn update(
+		&mut self,
+		_window: &mut WindowQueue,
+		message: Self::Message,
+	) -> Command<Self::Message> {
+		match message {
+			Message::ParamUpdate(message) => self.handle_param_message(message),
 		}
-		.build(cx);
 
-		VStack::new(cx, |cx| {
-			Label::new(cx, "Humanizer")
-			.font_family(vec![FamilyOwned::Name(String::from(assets::NOTO_SANS))])
-			.font_weight(FontWeightKeyword::Thin)
-			.font_size(30.0)
-			.height(Pixels(50.0))
-			.child_top(Stretch(1.0))
-			.child_bottom(Pixels(0.0));
+		Command::none()
+	}
 
-			Label::new(cx, "Range");
-			ParamKnob::new(cx, Data::params, |params| &params.range);
+	fn view(&mut self) -> Element<'_, Self::Message> {
+		let knob = ParamKnob::new(&self.params.range);
+		Column::new()
+			.align_items(Alignment::Center)
+			.push(
+				Text::new("Gain GUI")
+					.font(assets::NOTO_SANS_LIGHT)
+					.size(40)
+					.height(50.into())
+					.width(Length::Fill)
+					.horizontal_alignment(alignment::Horizontal::Center)
+					.vertical_alignment(alignment::Vertical::Bottom),
+			)
+			.push(
+				Text::new("Gain")
+					.height(20.into())
+					.width(Length::Fill)
+					.horizontal_alignment(alignment::Horizontal::Center)
+					.vertical_alignment(alignment::Vertical::Center),
+			)
+			.push(knob.map(Message::ParamUpdate))
+			.into()
+	}
 
-			Label::new(cx, "Center");
-			ParamKnob::new(cx, Data::params, |params| &params.center)
-			.top(Pixels(10.0));
-
-			Label::new(cx, "Frequency");
-			ParamKnob::new(cx, Data::params, |params| &params.frequency)
-			.top(Pixels(10.0));
-		})
-		.row_between(Pixels(0.0))
-		.child_left(Stretch(1.0))
-		.child_right(Stretch(1.0));
-
-		ResizeHandle::new(cx);
-	})
+	fn background_color(&self) -> nih_plug_iced::Color {
+		nih_plug_iced::Color {
+			r: 0.98,
+			g: 0.98,
+			b: 0.98,
+			a: 1.0,
+		}
+	}
 }
