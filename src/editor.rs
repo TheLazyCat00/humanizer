@@ -1,8 +1,15 @@
-use nih_plug::prelude:: { AtomicF32, Editor, GuiContext, util };
+use nih_plug::prelude:: { AtomicF32, Editor, GuiContext };
 use nih_plug_iced::*;
-use std::sync::Arc;
+use std::{ptr::null, sync::Arc};
+
+mod widgets;
 
 use crate::HumanizerParams;
+
+#[derive(Debug, Clone, Copy)]
+pub enum Message {
+	ParamUpdate(nih_plug_iced::widgets::ParamMessage),
+}
 
 pub(crate) fn default_state() -> Arc<IcedState> {
 	IcedState::from_size(200, 150)
@@ -10,44 +17,9 @@ pub(crate) fn default_state() -> Arc<IcedState> {
 
 pub(crate) fn create(
 	params: Arc<HumanizerParams>,
-	peak_meter: Arc<AtomicF32>,
 	editor_state: Arc<IcedState>,
 ) -> Option<Box<dyn Editor>> {
-	create_iced_editor::<HumanizerEditor>(editor_state, (params, peak_meter))
-}
-
-struct ParamKnob {}
-
-impl ParamKnob {
-	fn new() -> Self {
-		Self {
-		}
-	}
-}
-
-impl nih_plug_iced::widgets::generic_ui::ParamWidget for ParamKnob {
-	type State = f32;
-
-	fn into_widget_element<'a, P: nih_plug::prelude::Param>(
-			param: &'a P,
-			state: &'a mut Self::State,
-		) -> Element<'a, widgets::ParamMessage> {
-		// let element = Element::new(Button::new(&mut button::State::new(), Text::new("hi")));
-		let default_value: Normal = Normal::from_clipped(* state);
-		let element = 			Knob::new(
-				NormalParam { default: default_value, value: default_value },
-				|normal| {
-					let res = Message::ParamUpdate(widgets::ParamMessage::SetParameterNormalized(param.as_ptr(), 0.2));
-					return res;
-				},
-		);
-		return element;
-	}
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Message {
-	ParamUpdate(nih_plug_iced::widgets::ParamMessage),
+	create_iced_editor::<HumanizerEditor>(editor_state, params)
 }
 
 struct HumanizerEditor {
@@ -58,10 +30,10 @@ struct HumanizerEditor {
 impl IcedEditor for HumanizerEditor {
 	type Executor = executor::Default;
 	type Message = Message;
-	type InitializationFlags = (Arc<HumanizerParams>, Arc<AtomicF32>);
+	type InitializationFlags = Arc<HumanizerParams>;
 
 	fn new(
-		(params, peak_meter): Self::InitializationFlags,
+		params: Self::InitializationFlags,
 		context: Arc<dyn GuiContext>,
 	) -> (Self, Command<Self::Message>) {
 		let editor = HumanizerEditor {
@@ -104,7 +76,7 @@ impl IcedEditor for HumanizerEditor {
 				nih_plug_iced::Application::ParamSlider::into_widget_element(
 					&self.params.range,
 					&mut self.context.get_state().clone()
-				).draw(iced_audio::Knob::)
+				).draw(nih_plug_iced::backend::Button)
 			)
 			.into()
 	}
