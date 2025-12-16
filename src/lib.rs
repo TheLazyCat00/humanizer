@@ -41,10 +41,10 @@ impl Default for Humanizer {
 			params: Arc::new(HumanizerParams::default()),
 			delay_line: Vec::new(),
 			write_idx: 0,
-			max_delay_samples: 0, 
-			perlin: Perlin::new(42), 
+			max_delay_samples: 0,
+			perlin: Perlin::new(42),
 			noise_pos: 0.0,
-			sample_rate: 0.0, 
+			sample_rate: 0.0,
 		}
 	}
 }
@@ -52,7 +52,7 @@ impl Default for Humanizer {
 impl Default for HumanizerParams {
 	fn default() -> Self {
 		Self {
-            editor_state: editor::default_state(),
+			editor_state: editor::default_state(),
 			center: FloatParam::new(
 				"Center", 0.0,
 				FloatRange::Linear { min: -0.5, max: 0.5 }
@@ -65,7 +65,7 @@ impl Default for HumanizerParams {
 
 			frequency: FloatParam::new(
 				"Frequency",
-				1.0, 
+				1.0,
 				FloatRange::Linear { min: 0.1, max: 8.0 } 
 			).with_unit(" Cycles/Beat"),
 		}
@@ -100,7 +100,6 @@ impl Plugin for Humanizer {
 	fn editor(&mut self, async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
 		editor::create(
 			self.params.clone(),
-			self.peak_meter.clone(),
 			self.params.editor_state.clone(),
 		)
 	}
@@ -159,20 +158,6 @@ impl Plugin for Humanizer {
 		let noise_step = frequency_hz / sample_rate;
 
 		for (sample_idx, samples) in buffer.iter_samples().enumerate() {
-			if self.params.editor_state.is_open() {
-				amplitude = (amplitude / num_samples as f32).abs();
-				let current_peak_meter = self.peak_meter.load(std::sync::atomic::Ordering::Relaxed);
-				let new_peak_meter = if amplitude > current_peak_meter {
-					amplitude
-				} else {
-					current_peak_meter * self.peak_meter_decay_weight
-						+ amplitude * (1.0 - self.peak_meter_decay_weight)
-				};
-
-				self.peak_meter
-					.store(new_peak_meter, std::sync::atomic::Ordering::Relaxed)
-            }
-
 			let sample_idx_f64 = sample_idx as f64;
 
 			let current_noise_pos = self.noise_pos + sample_idx_f64 * noise_step;

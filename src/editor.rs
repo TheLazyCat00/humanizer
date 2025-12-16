@@ -1,10 +1,6 @@
-use atomic_float::AtomicF32;
-use nih_plug::prelude:: { util, Editor, GuiContext };
-use nih_plug_iced::widgets as nih_widgets;
+use nih_plug::prelude:: { AtomicF32, Editor, GuiContext, util };
 use nih_plug_iced::*;
-use iced_audio;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::HumanizerParams;
 
@@ -13,10 +9,45 @@ pub(crate) fn default_state() -> Arc<IcedState> {
 }
 
 pub(crate) fn create(
-	params: Arc<GainParams>,
+	params: Arc<HumanizerParams>,
+	peak_meter: Arc<AtomicF32>,
 	editor_state: Arc<IcedState>,
 ) -> Option<Box<dyn Editor>> {
 	create_iced_editor::<HumanizerEditor>(editor_state, (params, peak_meter))
+}
+
+struct ParamKnob {}
+
+impl ParamKnob {
+	fn new() -> Self {
+		Self {
+		}
+	}
+}
+
+impl nih_plug_iced::widgets::generic_ui::ParamWidget for ParamKnob {
+	type State = f32;
+
+	fn into_widget_element<'a, P: nih_plug::prelude::Param>(
+			param: &'a P,
+			state: &'a mut Self::State,
+		) -> Element<'a, widgets::ParamMessage> {
+		// let element = Element::new(Button::new(&mut button::State::new(), Text::new("hi")));
+		let default_value: Normal = Normal::from_clipped(* state);
+		let element = 			Knob::new(
+				NormalParam { default: default_value, value: default_value },
+				|normal| {
+					let res = Message::ParamUpdate(widgets::ParamMessage::SetParameterNormalized(param.as_ptr(), 0.2));
+					return res;
+				},
+		);
+		return element;
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Message {
+	ParamUpdate(nih_plug_iced::widgets::ParamMessage),
 }
 
 struct HumanizerEditor {
@@ -24,28 +55,18 @@ struct HumanizerEditor {
 	context: Arc<dyn GuiContext>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Message {
-	/// Update a parameter's value.
-	ParamUpdate(nih_widgets::ParamMessage),
-}
-
 impl IcedEditor for HumanizerEditor {
 	type Executor = executor::Default;
 	type Message = Message;
-	type InitializationFlags = (Arc<GainParams>, Arc<AtomicF32>);
+	type InitializationFlags = (Arc<HumanizerParams>, Arc<AtomicF32>);
 
 	fn new(
 		(params, peak_meter): Self::InitializationFlags,
 		context: Arc<dyn GuiContext>,
 	) -> (Self, Command<Self::Message>) {
-		let editor = GainEditor {
+		let editor = HumanizerEditor {
 			params,
 			context,
-
-			peak_meter,
-
-			gain_slider_state: Default::default(),
 		};
 
 		(editor, Command::none())
@@ -71,7 +92,7 @@ impl IcedEditor for HumanizerEditor {
 		Column::new()
 			.align_items(Alignment::Center)
 			.push(
-				Text::new("Gain GUI")
+				Text::new("Humanizer Gui")
 					.font(assets::NOTO_SANS_LIGHT)
 					.size(40)
 					.height(50.into())
@@ -80,23 +101,10 @@ impl IcedEditor for HumanizerEditor {
 					.vertical_alignment(alignment::Vertical::Bottom),
 			)
 			.push(
-				Text::new("Gain")
-					.height(20.into())
-					.width(Length::Fill)
-					.horizontal_alignment(alignment::Horizontal::Center)
-					.vertical_alignment(alignment::Vertical::Center),
-			)
-			.push(
-				nih_widgets::ParamSlider::new(&mut self.gain_slider_state, &self.params.gain)
-					.map(Message::ParamUpdate),
-			)
-			.push(Space::with_height(10.into()))
-			.push(
-				nih_widgets::PeakMeter::new(
-					&mut self.peak_meter_state,
-					util::gain_to_db(self.peak_meter.load(std::sync::atomic::Ordering::Relaxed)),
-				)
-					.hold_time(Duration::from_millis(600)),
+				nih_plug_iced::Application::ParamSlider::into_widget_element(
+					&self.params.range,
+					&mut self.context.get_state().clone()
+				).draw(iced_audio::Knob::)
 			)
 			.into()
 	}
