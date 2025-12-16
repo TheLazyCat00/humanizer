@@ -1,92 +1,66 @@
-use nih_plug::prelude:: { AtomicF32, Editor, GuiContext };
-use nih_plug_iced::*;
-use std::{ptr::null, sync::Arc};
+use atomic_float::AtomicF32;
+use nih_plug::prelude::{util, Editor};
+use nih_plug_vizia::vizia::prelude::*;
+use nih_plug_vizia::widgets::*;
+use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
 
 mod widgets;
+use widgets::*;
 
 use crate::HumanizerParams;
 
-#[derive(Debug, Clone, Copy)]
-pub enum Message {
-	ParamUpdate(nih_plug_iced::widgets::ParamMessage),
+#[derive(Lens)]
+struct Data {
+	params: Arc<HumanizerParams>,
 }
 
-pub(crate) fn default_state() -> Arc<IcedState> {
-	IcedState::from_size(200, 150)
+impl Model for Data {}
+
+// Makes sense to also define this here, makes it a bit easier to keep track of
+pub(crate) fn default_state() -> Arc<ViziaState> {
+	ViziaState::new(|| (200, 150))
 }
 
 pub(crate) fn create(
 	params: Arc<HumanizerParams>,
-	editor_state: Arc<IcedState>,
+	editor_state: Arc<ViziaState>,
 ) -> Option<Box<dyn Editor>> {
-	create_iced_editor::<HumanizerEditor>(editor_state, params)
-}
+	create_vizia_editor(editor_state, ViziaTheming::Custom, move |cx, _| {
+		assets::register_noto_sans_light(cx);
+		assets::register_noto_sans_thin(cx);
 
-struct HumanizerEditor {
-	params: Arc<HumanizerParams>,
-	context: Arc<dyn GuiContext>,
-}
-
-impl IcedEditor for HumanizerEditor {
-	type Executor = executor::Default;
-	type Message = Message;
-	type InitializationFlags = Arc<HumanizerParams>;
-
-	fn new(
-		params: Self::InitializationFlags,
-		context: Arc<dyn GuiContext>,
-	) -> (Self, Command<Self::Message>) {
-		let editor = HumanizerEditor {
-			params,
-			context,
-		};
-
-		(editor, Command::none())
-	}
-
-	fn context(&self) -> &dyn GuiContext {
-		self.context.as_ref()
-	}
-
-	fn update(
-		&mut self,
-		_window: &mut WindowQueue,
-		message: Self::Message,
-	) -> Command<Self::Message> {
-		match message {
-			Message::ParamUpdate(message) => self.handle_param_message(message),
+		Data {
+			params: params.clone(),
 		}
+		.build(cx);
 
-		Command::none()
-	}
+		VStack::new(cx, |cx| {
+			Label::new(cx, "Humanizer")
+			.font_family(vec![FamilyOwned::Name(String::from(assets::NOTO_SANS))])
+			.font_weight(FontWeightKeyword::Thin)
+			.font_size(30.0)
+			.height(Pixels(50.0))
+			.child_top(Stretch(1.0))
+			.child_bottom(Pixels(0.0));
 
-	fn view(&mut self) -> Element<'_, Self::Message> {
-		Column::new()
-			.align_items(Alignment::Center)
-			.push(
-				Text::new("Humanizer Gui")
-					.font(assets::NOTO_SANS_LIGHT)
-					.size(40)
-					.height(50.into())
-					.width(Length::Fill)
-					.horizontal_alignment(alignment::Horizontal::Center)
-					.vertical_alignment(alignment::Vertical::Bottom),
-			)
-			.push(
-				nih_plug_iced::Application::ParamSlider::into_widget_element(
-					&self.params.range,
-					&mut self.context.get_state().clone()
-				).draw(nih_plug_iced::backend::Button)
-			)
-			.into()
-	}
+			Label::new(cx, "Range");
+			ParamKnob::new(cx, Data::params, |params| &params.range);
 
-	fn background_color(&self) -> nih_plug_iced::Color {
-		nih_plug_iced::Color {
-			r: 0.98,
-			g: 0.98,
-			b: 0.98,
-			a: 1.0,
-		}
-	}
+			Label::new(cx, "Center");
+			ParamKnob::new(cx, Data::params, |params| &params.center)
+			.top(Pixels(10.0));
+
+			Label::new(cx, "Frequency");
+			ParamKnob::new(cx, Data::params, |params| &params.frequency)
+			.top(Pixels(10.0));
+		})
+		.row_between(Pixels(0.0))
+		.child_left(Stretch(1.0))
+		.child_right(Stretch(1.0));
+
+		ResizeHandle::new(cx);
+	})
 }

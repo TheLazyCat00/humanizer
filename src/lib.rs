@@ -1,5 +1,5 @@
 use nih_plug::prelude::*;
-use nih_plug_iced::IcedState;
+use nih_plug_vizia::ViziaState;
 use std::sync::Arc;
 use std::num::NonZeroU32;
 use noise::{Perlin, NoiseFn};
@@ -19,7 +19,7 @@ struct Humanizer {
 #[derive(Params)]
 struct HumanizerParams {
 	#[persist = "editor-state"]
-    editor_state: Arc<IcedState>,
+    editor_state: Arc<ViziaState>,
 	#[id = "range"]
 	pub range: FloatParam,
 	#[id = "center"]
@@ -56,7 +56,7 @@ impl Default for HumanizerParams {
 			center: FloatParam::new(
 				"Center", 0.0,
 				FloatRange::Linear { min: -0.5, max: 0.5 }
-			).with_unit("Normalized"),
+			).with_unit(""),
 
 			range: FloatParam::new(
 				"Range", 10.0,
